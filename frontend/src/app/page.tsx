@@ -11,6 +11,7 @@ import { ArrowUpIcon } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToastContainer, toast } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
+import { Pagination, PaginationContent, PaginationItem, PaginationPrevious, PaginationNext, PaginationLink } from "@/components/ui/pagination";
 
 type Estimate = {
   id: number;
@@ -52,8 +53,14 @@ export default function Home() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editedEstimate, setEditedEstimate] = useState<Estimate | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [currentEstimatePage, setCurrentEstimatePage] = useState(1);
+  const [currentTaskPage, setCurrentTaskPage] = useState(1);
+  const [taskFilter, setTaskFilter] = useState<"all" | "completed" | "pending">("all");
+const [estimateFilter, setEstimateFilter] = useState<"all" | "Pending" | "Sent" | "Approved" | "Declined">("all");
+  const estimatesPerPage = 4;
+  const tasksPerPage = 4;
 
-  // Fetch estimates from the backend
   const fetchEstimates = async () => {
     try {
       const response = await fetch("http://localhost:8080/estimates");
@@ -65,7 +72,6 @@ export default function Home() {
     }
   };
 
-  // Fetch tasks
   const fetchTasks = async () => {
     try {
       const response = await fetch("http://localhost:8080/tasks");
@@ -83,12 +89,10 @@ export default function Home() {
     fetchTasks();
   }, []);
 
-  // Recalculate estimate whenever any input changes
   useEffect(() => {
     calculateEstimate();
   }, [material, length, width, thickness, edgeFinish, materialCost, edgeFinishCost, laborCost, taxRate, discount]);
 
-  // Scroll to top functionality
   useEffect(() => {
     const handleScroll = () => {
       setIsVisible(window.scrollY > 300);
@@ -166,7 +170,6 @@ export default function Home() {
         setEstimates((prev) => [...prev, data]);
       }
 
-      // Automatically create a task if status is "Sent"
       if (newEstimate.status === "Sent") {
         await createTask(data.id, new Date().toISOString());
       }
@@ -294,37 +297,58 @@ export default function Home() {
       toast.success("Task created successfully");
     } catch (error) {
       console.error("Error creating task:", error);
-      // toast.error("Failed to create task");
     }
   };
 
-const markTaskCompleted = async (taskId: number) => {
-  try {
-    const response = await fetch(`http://localhost:8080/tasks/${taskId}/update`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ completed: true }),
-    });
+  const markTaskCompleted = async (taskId: number) => {
+    try {
+      const response = await fetch(`http://localhost:8080/tasks/${taskId}/update`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true }),
+      });
 
-    if (!response.ok) {
-      const errorData = await response.json(); // Parse the error response
-      console.error("Backend error:", errorData); // Log the error details
-      throw new Error("Failed to update task");
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error("Backend error:", errorData);
+        throw new Error("Failed to update task");
+      }
+
+      setTasks((prevTasks) =>
+        prevTasks.map((task) =>
+          task.id === taskId ? { ...task, completed: true } : task
+        )
+      );
+
+      toast.success("Task marked as completed");
+    } catch (error) {
+      console.error("Error updating task:", error);
+      toast.error("Failed to update task");
     }
+  };
 
-    // Update the task's status in the frontend state
-    setTasks((prevTasks) =>
-      prevTasks.map((task) =>
-        task.id === taskId ? { ...task, completed: true } : task
-      )
-    );
+  const filteredEstimates = estimates.filter((estimate) => {
+  const matchesSearchTerm = estimate.material.toLowerCase().includes(searchTerm.toLowerCase());
+  const matchesStatus = estimateFilter === "all" || estimate.status === estimateFilter;
+  return matchesSearchTerm && matchesStatus;
+});
 
-    toast.success("Task marked as completed");
-  } catch (error) {
-    console.error("Error updating task:", error);
-    toast.error("Failed to update task");
-  }
-};
+  const filteredTasks = tasks.filter((task) => {
+    if (taskFilter === "completed") return task.completed;
+    if (taskFilter === "pending") return !task.completed;
+    return true; // "all"
+  });
+
+  const indexOfLastEstimate = currentEstimatePage * estimatesPerPage;
+  const indexOfFirstEstimate = indexOfLastEstimate - estimatesPerPage;
+  const currentEstimates = filteredEstimates.slice(indexOfFirstEstimate, indexOfLastEstimate);
+
+  const indexOfLastTask = currentTaskPage * tasksPerPage;
+  const indexOfFirstTask = indexOfLastTask - tasksPerPage;
+  const currentTasks = filteredTasks.slice(indexOfFirstTask, indexOfLastTask);
+
+  const paginateEstimates = (pageNumber: number) => setCurrentEstimatePage(pageNumber);
+  const paginateTasks = (pageNumber: number) => setCurrentTaskPage(pageNumber);
 
   return (
     <div className="min-h-screen bg-gray-100 p-6">
@@ -344,75 +368,133 @@ const markTaskCompleted = async (taskId: number) => {
           </Button>
         </div>
 
-        {/* Estimates Table */}
         <Card className="mt-6">
-          <CardHeader>
-            <CardTitle>Estimates</CardTitle>
-            <CardDescription>View and manage all estimates.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Material</TableHead>
-                  <TableHead>Dimensions (cm)</TableHead>
-                  <TableHead>Edge Finish</TableHead>
-                  <TableHead>Cost ($)</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {estimates.map((estimate) => (
-                  <TableRow key={estimate.id}>
-                    <TableCell>{estimate.material}</TableCell>
-                    <TableCell>{estimate.length} x {estimate.width} x {estimate.thickness}</TableCell>
-                    <TableCell>{estimate.edgeFinish}</TableCell>
-                    <TableCell>${estimate.cost.toFixed(2)}</TableCell>
-                    <TableCell>
-                      <span
-                        className={`px-2 py-1 text-sm rounded 
-                          ${estimate.status === "Approved" ? "text-green-500 font-semibold" : 
-                            estimate.status === "Pending" ? "text-orange-600 font-semibold" :
-                            estimate.status === "Declined" ? "text-red-600 font-semibold" :
-                            estimate.status === "Sent" ? "text-blue-600 font-semibold" : 
-                            "bg-gray-300"}`}
-                      >
-                        {estimate.status}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        onClick={() => openEditModal(estimate)}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => deleteEstimate(estimate.id)}
-                      >
-                        Delete
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        onClick={() => duplicateEstimate(estimate.id)}
-                      >
-                        Duplicate
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+  <CardHeader className="flex flex-row items-center justify-between">
+    <CardTitle>Estimates</CardTitle>
+    <div className="flex gap-4">
+      <Input
+        placeholder="Search by material..."
+        value={searchTerm}
+        onChange={(e) => setSearchTerm(e.target.value)}
+        className="w-full max-w-sm"
+      />
+      <Select
+        value={estimateFilter}
+        onValueChange={(value) => setEstimateFilter(value as "all" | "Pending" | "Sent" | "Approved" | "Declined")}
+      >
+        <SelectTrigger className="w-[180px]">
+          <SelectValue placeholder="Filter by status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Statuses</SelectItem>
+          <SelectItem value="Pending">Pending</SelectItem>
+          <SelectItem value="Sent">Sent</SelectItem>
+          <SelectItem value="Approved">Approved</SelectItem>
+          <SelectItem value="Declined">Declined</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  </CardHeader>
+  <CardContent>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Material</TableHead>
+          <TableHead>Dimensions (cm)</TableHead>
+          <TableHead>Edge Finish</TableHead>
+          <TableHead>Cost ($)</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {currentEstimates.map((estimate) => (
+          <TableRow key={estimate.id}>
+            <TableCell>{estimate.material}</TableCell>
+            <TableCell>{estimate.length} x {estimate.width} x {estimate.thickness}</TableCell>
+            <TableCell>{estimate.edgeFinish}</TableCell>
+            <TableCell>${estimate.cost.toFixed(2)}</TableCell>
+            <TableCell>
+              <span
+                className={`px-2 py-1 text-sm rounded 
+                  ${estimate.status === "Approved" ? "text-green-500 font-semibold" : 
+                    estimate.status === "Pending" ? "text-orange-600 font-semibold" :
+                    estimate.status === "Declined" ? "text-red-600 font-semibold" :
+                    estimate.status === "Sent" ? "text-blue-600 font-semibold" : 
+                    "bg-gray-300"}`}
+              >
+                {estimate.status}
+              </span>
+            </TableCell>
+            <TableCell>
+              <Button
+                variant="ghost"
+                onClick={() => openEditModal(estimate)}
+              >
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => deleteEstimate(estimate.id)}
+              >
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => duplicateEstimate(estimate.id)}
+              >
+                Duplicate
+              </Button>
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+    <Pagination className="mt-4">
+      <PaginationContent>
+        <PaginationItem>
+          <PaginationPrevious
+            onClick={() => paginateEstimates(currentEstimatePage - 1)}
+            aria-disabled={currentEstimatePage === 1}
+          />
+        </PaginationItem>
+        {Array.from({ length: Math.ceil(filteredEstimates.length / estimatesPerPage) }, (_, i) => (
+          <PaginationItem key={i + 1}>
+            <PaginationLink
+              onClick={() => paginateEstimates(i + 1)}
+              isActive={currentEstimatePage === i + 1}
+            >
+              {i + 1}
+            </PaginationLink>
+          </PaginationItem>
+        ))}
+        <PaginationItem>
+          <PaginationNext
+            onClick={() => paginateEstimates(currentEstimatePage + 1)}
+            aria-disabled={currentEstimatePage === Math.ceil(filteredEstimates.length / estimatesPerPage)}
+          />
+        </PaginationItem>
+      </PaginationContent>
+    </Pagination>
+  </CardContent>
+</Card>
 
-        {/* Task Management Section */}
         <Card className="mt-6">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Follow-Up Tasks</CardTitle>
-            <CardDescription>View and manage follow-up tasks.</CardDescription>
+            <Select
+              value={taskFilter}
+              onValueChange={(value) => setTaskFilter(value as "all" | "completed" | "pending")}
+            >
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter tasks" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Tasks</SelectItem>
+                <SelectItem value="completed">Completed</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+              </SelectContent>
+            </Select>
           </CardHeader>
           <CardContent>
             <Table>
@@ -425,7 +507,7 @@ const markTaskCompleted = async (taskId: number) => {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {tasks.map((task) => (
+                {currentTasks.map((task) => (
                   <TableRow key={task.id}>
                     <TableCell>{task.estimateId}</TableCell>
                     <TableCell>{new Date(task.dueDate).toLocaleString()}</TableCell>
@@ -450,10 +532,35 @@ const markTaskCompleted = async (taskId: number) => {
                 ))}
               </TableBody>
             </Table>
+            <Pagination className="mt-4">
+              <PaginationContent>
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => paginateTasks(currentTaskPage - 1)}
+                    aria-disabled={currentTaskPage === 1}
+                  />
+                </PaginationItem>
+                {Array.from({ length: Math.ceil(filteredTasks.length / tasksPerPage) }, (_, i) => (
+                  <PaginationItem key={i + 1}>
+                    <PaginationLink
+                      onClick={() => paginateTasks(i + 1)}
+                      isActive={currentTaskPage === i + 1}
+                    >
+                      {i + 1}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => paginateTasks(currentTaskPage + 1)}
+                    aria-disabled={currentTaskPage === Math.ceil(filteredTasks.length / tasksPerPage)}
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </CardContent>
         </Card>
 
-        {/* Create/Edit Estimate Form */}
         <Card className="mt-6">
           <CardHeader>
             <CardTitle>{editedEstimate ? "Edit Estimate" : "Create New Estimate"}</CardTitle>
@@ -561,7 +668,6 @@ const markTaskCompleted = async (taskId: number) => {
               </div>
             </form>
 
-            {/* Display the calculated estimate */}
             {estimate !== null ? (
               <div className="mt-4 p-4 bg-green-50 rounded-lg">
                 <p className="text-green-700 font-semibold">
@@ -578,7 +684,6 @@ const markTaskCompleted = async (taskId: number) => {
           </CardContent>
         </Card>
 
-        {/* Edit Estimate Modal */}
         <Dialog open={isEditModalOpen} onOpenChange={closeEditModal}>
           <DialogContent className="max-h-[80vh] overflow-y-auto">
             <DialogHeader>
@@ -664,7 +769,6 @@ const markTaskCompleted = async (taskId: number) => {
                     </SelectContent>
                   </Select>
                 </div>
-                {/* Display the calculated cost in the edit modal */}
                 <div className="mt-4 p-4 bg-green-50 rounded-lg">
                   <p className="text-green-700 font-semibold">
                     Estimated Cost: ${calculateEditEstimate().toFixed(2)}
@@ -678,7 +782,6 @@ const markTaskCompleted = async (taskId: number) => {
           </DialogContent>
         </Dialog>
 
-        {/* Toast Container for Notifications */}
         <ToastContainer />
       </div>
     </div>
